@@ -23,12 +23,38 @@ process_data <- function(src, var = c("cases", "deaths")) {
   invisible(df)
 }
 
+process_county_data <- function(src, var = c("cases", "deaths")) {
+  var <- match.arg(var)
+  svar <- ensym(var)
+  new_var <- str_c("new_", var)
+
+  df <- src %>%
+    select(county = Admin2, state = Province_State, matches("[0-9]+/[0-9]+/[0-9]+")) %>%
+    pivot_longer(c(-state, -county), names_to = "date", values_to = var) %>%
+    mutate(date = mdy(date)) %>%
+    group_by(state, county, date) %>% summarize_all(sum) %>% ungroup() %>%
+    arrange(state, county, date) %>%
+    group_by(state, county) %>%
+    mutate(!!new_var := !!svar - lag(!!svar)) %>%
+    ungroup()
+  invisible(df)
+}
+
+
 us_covid <- process_data(us_cases, "cases") %>%
-  full_join(process_data(us_deaths, "deaths"), by = c("state", "date"))
+  full_join(process_data(us_deaths, "deaths"), by = c("state", "date")) %>%
+  arrange(state, date)
+
+us_covid_county <- process_county_data(us_cases, "cases") %>%
+  full_join(process_county_data(us_deaths, "deaths"),
+            by = c("state", "county", "date")) %>%
+  arrange(state, county, date)
 
 plot_time_series <- function(state, var = c("cases", "deaths"),
+                             county = NULL,
                              filter_len = 7,
-                             filter_align = c("center", "right", "left")) {
+                             filter_align = c("center", "right", "left"),
+                             clamp_zero = FALSE) {
   var <- match.arg(var)
   filter_align <- match.arg(filter_align)
 
@@ -37,6 +63,12 @@ plot_time_series <- function(state, var = c("cases", "deaths"),
   snvar <- ensym(nvar)
 
   state <- str_to_title(state)
+  if (! is.null(county)) {
+    county <- str_to_title(county)
+    loc <- str_c(county, " County, ", state)
+  } else {
+    loc <- state
+  }
 
   if (filter_len < 2) {
     filter_len <- NA
@@ -61,7 +93,9 @@ plot_time_series <- function(state, var = c("cases", "deaths"),
     lab_var <- str_to_sentence(str_c("Daily", var, sep = " "))
     title_var <- str_c("COVID-19", var, sep = " ")
   }
-  title_str <- str_c(title_var, "in", str_to_title(state), "by day",
+
+
+  title_str <- str_c(title_var, "in", loc, "by day",
                      sep = " ")
 
   filtered_var <- str_c("smooth_", var)
@@ -70,7 +104,17 @@ plot_time_series <- function(state, var = c("cases", "deaths"),
   raw_label <- "Raw count"
   sf_label <- str_c(filter_len, "-day average")
 
-  df <- us_covid %>% filter(state == !!state)
+  if (is.null(county)) {
+    df <- us_covid %>% filter(state == !!state)
+  } else {
+    df <- us_covid_county %>% filter(state == !!state, county == !!county)
+  }
+
+  if (clamp_zero) {
+    df <- df %>% mutate(new_deaths = pmax(0, new_deaths),
+                        new_cases = pmax(0, new_cases))
+  }
+
   if (! is.na(filter_len)) {
     df <- df %>%
       mutate(!!sf_var := slide_dbl(!!snvar, mean, .before = before,
