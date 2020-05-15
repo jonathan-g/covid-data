@@ -52,11 +52,13 @@ us_covid_county <- process_county_data(us_cases, "cases") %>%
 
 plot_time_series <- function(state, var = c("cases", "deaths"),
                              county = NULL,
+                             type = c("bar", "line"),
                              filter_len = 7,
                              filter_align = c("center", "right", "left"),
                              clamp_zero = FALSE) {
   var <- match.arg(var)
   filter_align <- match.arg(filter_align)
+  type <- match.arg(type)
 
   svar <- ensym(var)
   nvar <- str_c("new_", var)
@@ -115,48 +117,114 @@ plot_time_series <- function(state, var = c("cases", "deaths"),
                         new_cases = pmax(0, new_cases))
   }
 
+  # plot_2_df <<- df
+
   if (! is.na(filter_len)) {
     df <- df %>%
       mutate(!!sf_var := slide_dbl(!!snvar, mean, .before = before,
                                    .after = after, .complete = TRUE)) %>%
-      select(date, !!snvar, !!sf_var) %>%
-      pivot_longer(-date, names_to = "filter", values_to = "count") %>%
-      mutate(filter = ordered(filter, levels = c(nvar, filtered_var),
-                              labels = c(!!raw_label, !!sf_label)))
-    mapping <- aes(x = date, y = count, color = filter, size = filter)
-    col_scale <- scale_color_manual(values = set_names(c(alpha("darkblue", 0.3),
-                                                         "darkred"),
-                                                       c(raw_label, sf_label)),
-                                    name = NULL)
-    size_scale <- scale_size_manual(values = set_names(c(0.1, 1),
-                                                       c(raw_label, sf_label)),
-                                    name = NULL)
+      select(date, !!snvar, !!sf_var)
+
+    if (type == "line") {
+      df <- df %>%
+        pivot_longer(-date, names_to = "filter", values_to = "count") %>%
+        mutate(filter = ordered(filter, levels = c(nvar, filtered_var),
+                                labels = c(!!raw_label, !!sf_label)))
+      mapping <- aes(x = date, y = count, color = filter, size = filter)
+      col_scale <- scale_color_manual(values = set_names(c(alpha("darkblue", 0.3),
+                                                           "darkred"),
+                                                         c(raw_label, sf_label)),
+                                      name = NULL)
+      fil_scale <- scale_fill_manual(values = set_names(c(NA, NA),
+                                                        c(raw_label, sf_label)),
+                                     name = NULL)
+      size_scale <- scale_size_manual(values = set_names(c(0.1, 1),
+                                                         c(raw_label, sf_label)),
+                                      name = NULL)
+      guide_extra <- guides(colour = guide_legend(override.aes = list(alpha = 1)))
+    } else {
+      mapping <- aes(x = date, y = !!snvar)
+      col_scale <- scale_color_manual(values = set_names(c(alpha("darkblue", 0.2),
+                                                           "darkred"),
+                                                         c(raw_label, sf_label)),
+                                      name = NULL)
+      fil_scale <- scale_fill_manual(values = set_names(c(alpha("darkblue", 0.1),
+                                                          NA),
+                                                        c(raw_label, sf_label)),
+                                     name = NULL)
+      size_scale <- scale_size_manual(values = set_names(c(0, 1),
+                                                         c(raw_label, sf_label)),
+                                      name = NULL)
+      guide_extra <- guides()
+    }
+
     theme_extra <- theme(legend.position = c(0.01, 0.99),
                          legend.justification = c(0, 1))
-    guide_extra <- guides(colour = guide_legend(override.aes = list(alpha = 1)))
   } else {
     mapping <- aes(x = date, y = !!snvar)
     col_scale <- scale_color_manual(values = "darkblue", name = NULL)
+    fil_scale <- scale_fill_manual(values = "darkblue", name = NULL)
     size_scale <- scale_size_manual(values = 1, name = NULL)
     theme_extra <- theme()
     guide_extra <- guides(color = "none", size = "none")
   }
 
-  # plot_df <<- df
-  # plot_mapping <<- mapping
-  # plot_col_scale <<- col_scale
-  # plot_size_scale <<- size_scale
-  # plot_guide_extra <<- guide_extra
-  # plot_title_str <<- title_str
-  # plot_lab_str <<- lab_var
-  # plot_theme <<- theme_extra
+  plot_df <<- df
+  plot_mapping <<- mapping
+  plot_col_scale <<- col_scale
+  plot_size_scale <<- size_scale
+  plot_guide_extra <<- guide_extra
+  plot_title_str <<- title_str
+  plot_lab_str <<- lab_var
+  plot_theme <<- theme_extra
+  #
 
-  p <- ggplot(df, mapping = mapping) +
-    geom_line(na.rm = TRUE) +
-    col_scale + size_scale +
+  p <- ggplot(df, mapping = mapping)
+  if (type == "line") {
+    p <- p +
+      geom_line(na.rm = TRUE)
+  } else {
+    p <- p +
+      geom_col(aes(fill = !!raw_label, color = !!raw_label,
+                   size = !!raw_label),
+               na.rm = TRUE) +
+      geom_line(aes(y = !!sf_var, color = !!sf_label, fill = !!sf_label,
+                    size = !!sf_label),
+                na.rm = TRUE)
+  }
+  p <- p +
+    col_scale + size_scale
+  if (type == "bar") {
+    p <- p + fil_scale
+  }
+  p <- p +
     guide_extra +
     labs(x = "Date", y = lab_var, title = title_str) +
     theme_bw() +
     theme_extra
   p
+}
+
+adjust_scale <- function(p, start = ymd("2020-03-01"), day = 1, skip = 1) {
+  if (is.character(start))
+    start <- ymd(start)
+  end <- ymd("2020-12-31")
+  b <- seq(start, end, by = "day") %>%
+    keep(~wday(.x) == day)
+  if (skip < 1) {
+    mb <- NULL
+  } else {
+    mb <- b
+  }
+  b <- b %>% keep(., (seq_along(.) - 1) %% (skip + 1) == 0)
+  if (! is.null(mb)) {
+    mb <- setdiff(mb, b) %>% as_date()
+  }
+
+  plot_breaks <<- b
+  plot_minor_breaks <<- mb
+
+  p + scale_x_date(limits = c(start, NA),
+                   breaks = b, minor_breaks = mb,
+                   date_labels = "%b %d")
 }
