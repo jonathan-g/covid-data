@@ -3,61 +3,65 @@ library(magrittr)
 library(lubridate)
 library(slider)
 
-us_cases <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv")
-us_deaths <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv")
+load_data <- function() {
+  us_cases <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv")
+  us_deaths <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv")
 
-process_data <- function(src, var = c("cases", "deaths")) {
-  var <- match.arg(var)
-  svar <- ensym(var)
-  new_var <- str_c("new_", var)
+  process_data <- function(src, var = c("cases", "deaths")) {
+    var <- match.arg(var)
+    svar <- ensym(var)
+    new_var <- str_c("new_", var)
 
-  df <- src %>%
-    select(state = Province_State, matches("[0-9]+/[0-9]+/[0-9]+")) %>%
-    pivot_longer(-state, names_to = "date", values_to = var) %>%
-    mutate(date = mdy(date)) %>%
-    group_by(state, date) %>% summarize_all(sum) %>% ungroup() %>%
-    arrange(state, date) %>%
-    group_by(state) %>%
-    mutate(!!new_var := !!svar - lag(!!svar)) %>%
-    ungroup()
-  invisible(df)
+    df <- src %>%
+      select(state = Province_State, matches("[0-9]+/[0-9]+/[0-9]+")) %>%
+      pivot_longer(-state, names_to = "date", values_to = var) %>%
+      mutate(date = mdy(date)) %>%
+      group_by(state, date) %>% summarize_all(sum) %>% ungroup() %>%
+      arrange(state, date) %>%
+      group_by(state) %>%
+      mutate(!!new_var := !!svar - lag(!!svar)) %>%
+      ungroup()
+    invisible(df)
+  }
+
+  process_county_data <- function(src, var = c("cases", "deaths")) {
+    var <- match.arg(var)
+    svar <- ensym(var)
+    new_var <- str_c("new_", var)
+
+    df <- src %>%
+      select(county = Admin2, state = Province_State, matches("[0-9]+/[0-9]+/[0-9]+")) %>%
+      pivot_longer(c(-state, -county), names_to = "date", values_to = var) %>%
+      mutate(date = mdy(date)) %>%
+      group_by(state, county, date) %>% summarize_all(sum) %>% ungroup() %>%
+      arrange(state, county, date) %>%
+      group_by(state, county) %>%
+      mutate(!!new_var := !!svar - lag(!!svar)) %>%
+      ungroup()
+    invisible(df)
+  }
+
+
+  us_covid <- process_data(us_cases, "cases") %>%
+    full_join(process_data(us_deaths, "deaths"), by = c("state", "date")) %>%
+    arrange(state, date)
+
+  us_covid_county <- process_county_data(us_cases, "cases") %>%
+    full_join(process_county_data(us_deaths, "deaths"),
+              by = c("state", "county", "date")) %>%
+    arrange(state, county, date)
+
+  invisible(list(us_covid = us_covid, us_covid_county = us_covid_county))
 }
-
-process_county_data <- function(src, var = c("cases", "deaths")) {
-  var <- match.arg(var)
-  svar <- ensym(var)
-  new_var <- str_c("new_", var)
-
-  df <- src %>%
-    select(county = Admin2, state = Province_State, matches("[0-9]+/[0-9]+/[0-9]+")) %>%
-    pivot_longer(c(-state, -county), names_to = "date", values_to = var) %>%
-    mutate(date = mdy(date)) %>%
-    group_by(state, county, date) %>% summarize_all(sum) %>% ungroup() %>%
-    arrange(state, county, date) %>%
-    group_by(state, county) %>%
-    mutate(!!new_var := !!svar - lag(!!svar)) %>%
-    ungroup()
-  invisible(df)
-}
-
-
-us_covid <- process_data(us_cases, "cases") %>%
-  full_join(process_data(us_deaths, "deaths"), by = c("state", "date")) %>%
-  arrange(state, date)
-
-us_covid_county <- process_county_data(us_cases, "cases") %>%
-  full_join(process_county_data(us_deaths, "deaths"),
-            by = c("state", "county", "date")) %>%
-  arrange(state, county, date)
 
 plot_time_series <- function(state, var = c("cases", "deaths"),
                              county = NULL,
                              type = c("bar", "line"),
                              filter_len = 7,
-                             filter_align = c("center", "right", "left"),
-                             clamp_zero = FALSE) {
+                             align = c("right", "center", "left"),
+                             clamp_zero = FALSE, complement = FALSE) {
   var <- match.arg(var)
-  filter_align <- match.arg(filter_align)
+  filter_align <- match.arg(align)
   type <- match.arg(type)
 
   svar <- ensym(var)
@@ -65,11 +69,19 @@ plot_time_series <- function(state, var = c("cases", "deaths"),
   snvar <- ensym(nvar)
 
   state <- str_to_title(state)
+  if (length(state) > 2) {
+    state_names <- state.abb[state.name %in% state]
+  } else {
+    state_names <- state
+  }
   if (! is.null(county)) {
     county <- str_to_title(county)
-    loc <- str_c(county, " County, ", state)
+    loc <- str_c(county, " County, ", state_names, collapse = ", ")
   } else {
-    loc <- state
+    loc <- str_c(state_names, collapse = ", ")
+  }
+  if (complement) {
+    loc <- str_c("Except ", loc)
   }
 
   if (filter_len < 2) {
@@ -107,15 +119,29 @@ plot_time_series <- function(state, var = c("cases", "deaths"),
   sf_label <- str_c(filter_len, "-day average")
 
   if (is.null(county)) {
-    df <- us_covid %>% filter(state == !!state)
+    if (complement) {
+     df <- us_covid %>% filter(! state %in% !!state)
+    } else {
+    df <- us_covid %>% filter(state %in% !!state)
+    }
   } else {
-    df <- us_covid_county %>% filter(state == !!state, county == !!county)
+    if (complement) {
+    df <- us_covid_county %>%
+      filter(! (state %in% !!state & county %in% !!county))
+    } else {
+    df <- us_covid_county %>% filter(state %in% !!state, county %in% !!county)
+    }
   }
 
   if (clamp_zero) {
     df <- df %>% mutate(new_deaths = pmax(0, new_deaths),
                         new_cases = pmax(0, new_cases))
   }
+
+  df <- df %>% group_by(date) %>%
+    summarize_at(vars(cases, deaths, new_cases, new_deaths),
+                 ~sum(., na.rm = TRUE)) %>%
+    ungroup()
 
   # plot_2_df <<- df
 
