@@ -13,10 +13,12 @@ load_data <- function() {
     new_var <- str_c("new_", var)
 
     df <- src %>%
-      select(state = Province_State, matches("[0-9]+/[0-9]+/[0-9]+")) %>%
+      select(state = Province_State,
+             matches("[0-9]+/[0-9]+/[0-9]+")) %>%
       pivot_longer(-state, names_to = "date", values_to = var) %>%
       mutate(date = mdy(date)) %>%
-      group_by(state, date) %>% summarize_all(sum) %>% ungroup() %>%
+      group_by(state, date) %>%
+      summarize_all(~sum(., na.rm = TRUE)) %>% ungroup() %>%
       arrange(state, date) %>%
       group_by(state) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
@@ -30,17 +32,20 @@ load_data <- function() {
     new_var <- str_c("new_", var)
 
     df <- src %>%
-      select(county = Admin2, state = Province_State, matches("[0-9]+/[0-9]+/[0-9]+")) %>%
-      pivot_longer(c(-state, -county), names_to = "date", values_to = var) %>%
-      mutate(date = mdy(date)) %>%
-      group_by(state, county, date) %>% summarize_all(sum) %>% ungroup() %>%
-      arrange(state, county, date) %>%
-      group_by(state, county) %>%
+      select(county = Admin2, state = Province_State, GEOID = FIPS,
+             matches("[0-9]+/[0-9]+/[0-9]+")) %>%
+      pivot_longer(c(-state, -county, -GEOID),
+                   names_to = "date", values_to = var) %>%
+      mutate(date = mdy(date), GEOID = sprintf("%05d", as.integer(GEOID))) %>%
+      group_by(state, county, GEOID, date) %>%
+      summarize_all(~sum(., na.rm = TRUE)) %>%
+      ungroup() %>%
+      arrange(state, county, GEOID, date) %>%
+      group_by(state, county, GEOID) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
       ungroup()
     invisible(df)
   }
-
 
   us_covid <- process_data(us_cases, "cases") %>%
     full_join(process_data(us_deaths, "deaths"), by = c("state", "date")) %>%
@@ -48,26 +53,13 @@ load_data <- function() {
 
   us_covid_county <- process_county_data(us_cases, "cases") %>%
     full_join(process_county_data(us_deaths, "deaths"),
-              by = c("state", "county", "date")) %>%
-    arrange(state, county, date)
+              by = c("state", "county", "GEOID", "date")) %>%
+    arrange(state, county, GEOID, date)
 
   invisible(list(us_covid = us_covid, us_covid_county = us_covid_county))
 }
 
-plot_time_series <- function(state, var = c("cases", "deaths"),
-                             county = NULL,
-                             type = c("bar", "line"),
-                             filter_len = 7,
-                             align = c("right", "center", "left"),
-                             clamp_zero = FALSE, complement = FALSE) {
-  var <- match.arg(var)
-  filter_align <- match.arg(align)
-  type <- match.arg(type)
-
-  svar <- ensym(var)
-  nvar <- str_c("new_", var)
-  snvar <- ensym(nvar)
-
+select_data <- function(state, county = NULL, complement = FALSE) {
   state <- str_to_title(state)
   if (length(state) > 2) {
     state_names <- state.abb[state.name %in% state]
@@ -84,9 +76,93 @@ plot_time_series <- function(state, var = c("cases", "deaths"),
     loc <- str_c("Except ", loc)
   }
 
+  if (is.null(county)) {
+    if (complement) {
+      df <- us_covid %>% filter(! state %in% !!state)
+    } else {
+      df <- us_covid %>% filter(state %in% !!state)
+    }
+  } else {
+    if (complement) {
+      df <- us_covid_county %>%
+        filter(! (state %in% !!state & county %in% !!county))
+    } else {
+      df <- us_covid_county %>%
+        filter(state %in% !!state, county %in% !!county)
+    }
+  }
+  attr(df, "loc") <- loc
+  invisible(df)
+}
+
+rural_data <- function() {
+  rural_counties <- tidycensus::get_decennial("county",
+                                              c("P002002", "P002005"),
+                                              cache_table = TRUE,
+                                              cache = TRUE,
+                                              year = 2010) %>%
+    pivot_wider(names_from = "variable", values_from = "value") %>%
+    filter(P002005 > P002002) %>% dplyr::pull(GEOID)
+
+  df <- us_covid_county %>% filter(! GEOID %in% rural_counties)
+  attr(df, "loc") <- "Rural Counties"
+  invisible(df)
+}
+
+plot_time_series <- function(df, var = c("cases", "deaths"),
+                             type = c("bar", "line"),
+                             filter_len = 7,
+                             align = c("right", "center", "left"),
+                             clamp_zero = FALSE, loc = NULL) {
+  var <- match.arg(var)
+  filter_align <- match.arg(align)
+  type <- match.arg(type)
+
+  svar <- ensym(var)
+  nvar <- str_c("new_", var)
+  snvar <- ensym(nvar)
+
+  if (is.null(loc) && ("loc" %in% names(attributes(df)))) {
+    loc <- attr(df, "loc", TRUE)
+  }
+
+  filtered_var <- str_c("smooth_", var)
+  sf_var <- ensym(filtered_var)
+
+  raw_label <- "Raw count"
+  sf_label <- str_c(filter_len, "-day average")
+
+  if (clamp_zero) {
+    df <- df %>% mutate(new_deaths = pmax(0, new_deaths),
+                        new_cases = pmax(0, new_cases))
+  }
+
+  if (var == "cases") {
+    lab_var <- str_to_sentence(str_c("New", var, sep = " "))
+    title_var <- str_c("New COVID-19", var, sep = " ")
+  } else {
+    lab_var <- str_to_sentence(str_c("Daily", var, sep = " "))
+    title_var <- str_c("COVID-19", var, sep = " ")
+  }
+
+  if (is.null(loc) || loc == "") {
+    loc <- ""
+  } else {
+    loc <- str_c(" in ", loc)
+  }
+  title_str <- str_c(title_var, loc, " by day")
+
+  df <- df %>% group_by(date) %>%
+    summarize_at(vars(cases, deaths, new_cases, new_deaths),
+                 ~sum(., na.rm = TRUE)) %>%
+    ungroup()
+
+  # plot_2_df <<- df
+
   if (filter_len < 2) {
     filter_len <- NA
   }
+
   if (! is.na(filter_len)) {
     if (filter_align == "center") {
       before = as.integer(ceiling((filter_len - 1) / 2))
@@ -99,51 +175,6 @@ plot_time_series <- function(state, var = c("cases", "deaths"),
       after = filter_len - 1
     }
   }
-
-  if (var == "cases") {
-    lab_var <- str_to_sentence(str_c("New", var, sep = " "))
-    title_var <- str_c("New COVID-19", var, sep = " ")
-  } else {
-    lab_var <- str_to_sentence(str_c("Daily", var, sep = " "))
-    title_var <- str_c("COVID-19", var, sep = " ")
-  }
-
-
-  title_str <- str_c(title_var, "in", loc, "by day",
-                     sep = " ")
-
-  filtered_var <- str_c("smooth_", var)
-  sf_var <- ensym(filtered_var)
-
-  raw_label <- "Raw count"
-  sf_label <- str_c(filter_len, "-day average")
-
-  if (is.null(county)) {
-    if (complement) {
-     df <- us_covid %>% filter(! state %in% !!state)
-    } else {
-    df <- us_covid %>% filter(state %in% !!state)
-    }
-  } else {
-    if (complement) {
-    df <- us_covid_county %>%
-      filter(! (state %in% !!state & county %in% !!county))
-    } else {
-    df <- us_covid_county %>% filter(state %in% !!state, county %in% !!county)
-    }
-  }
-
-  if (clamp_zero) {
-    df <- df %>% mutate(new_deaths = pmax(0, new_deaths),
-                        new_cases = pmax(0, new_cases))
-  }
-
-  df <- df %>% group_by(date) %>%
-    summarize_at(vars(cases, deaths, new_cases, new_deaths),
-                 ~sum(., na.rm = TRUE)) %>%
-    ungroup()
-
-  # plot_2_df <<- df
 
   if (! is.na(filter_len)) {
     df <- df %>%
