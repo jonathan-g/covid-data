@@ -3,7 +3,23 @@ library(magrittr)
 library(lubridate)
 library(slider)
 
-load_data <- function() {
+initialize_git_tokens <- function() {
+  git_keyring <- "git_access"
+  if (keyring::keyring_is_locked(git_keyring)) {
+    keyring::keyring_unlock(git_keyring)
+  }
+  Sys.setenv(GITHUB_PAT = keyring::key_get("GITHUB_PAT", keyring = git_keyring))
+  Sys.setenv(JG_GITLAB_PAT = keyring::key_get("jg-gitlab", "jonathan",
+                                              keyring = git_keyring))
+}
+
+update_repos <- function() {
+  github_cred <- git2r::cred_token("GITHUB_PAT")
+  git2r::pull(git2r::repository("data/hopkins/"), credentials = github_cred)
+  git2r::pull(git2r::repository("data/nytimes/"), credentials = github_cred)
+}
+
+load_data <- function(init_globals = FALSE) {
   us_cases <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv")
   us_deaths <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv")
 
@@ -56,6 +72,10 @@ load_data <- function() {
               by = c("state", "county", "GEOID", "date")) %>%
     arrange(state, county, GEOID, date)
 
+  if (init_globals) {
+    assign("us_covid", us_covid, envir = globalenv())
+    assign("us_covid_county", us_covid_county, envir = globalenv())
+  }
   invisible(list(us_covid = us_covid, us_covid_county = us_covid_county))
 }
 
@@ -96,21 +116,28 @@ select_data <- function(state, county = NULL, complement = FALSE) {
 }
 
 rural_data <- function(state = NULL) {
-  rural_counties <- tidycensus::get_decennial("county",
-                                              c("P002002", "P002005"),
-                                              cache_table = TRUE,
-                                              cache = TRUE,
-                                              year = 2010) %>%
-    pivot_wider(names_from = "variable", values_from = "value") %>%
-    filter(P002005 > P002002) %>% dplyr::pull(GEOID)
-
-  df <- us_covid_county %>% filter(! GEOID %in% rural_counties)
+  if (! exists(".rural_counties", envir = globalenv()) ||
+      ! is.environment(globalenv()$.rural_counties)) {
+    globalenv()$.rural_counties <- new.env(parent = globalenv())
+  }
+  if (! exists("rural_counties", envir = .rural_counties)) {
+    rural_counties <- tidycensus::get_decennial("county",
+                                                c("P002001", "P002002", "P002005"),
+                                                cache_table = TRUE,
+                                                cache = TRUE,
+                                                year = 2010) %>%
+      pivot_wider(names_from = "variable", values_from = "value") %>%
+      filter(P002005 > P002002) %>% dplyr::pull(GEOID)
+    assign("rural_counties", rural_counties, envir = .rural_counties)
+  }
+  rural_counties <- get("rural_counties", envir = .rural_counties)
+  df <- us_covid_county %>% filter(GEOID %in% rural_counties)
   loc <- "Rural Counties"
   if (! is.null(state)) {
     state <- str_to_title(state)
     df <- df %>% filter(state %in% !!state)
     if (length(state) > 1) {
-      state <- state.abbr[state.name %in% state]
+      state <- state.abb[state.name %in% state]
     }
     loc <- str_c(loc, " in ", str_c(state, collapse = ", "))
   }
