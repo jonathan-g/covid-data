@@ -95,7 +95,7 @@ select_data <- function(state, county = NULL, complement = FALSE) {
   invisible(df)
 }
 
-rural_data <- function() {
+rural_data <- function(state = NULL) {
   rural_counties <- tidycensus::get_decennial("county",
                                               c("P002002", "P002005"),
                                               cache_table = TRUE,
@@ -105,7 +105,16 @@ rural_data <- function() {
     filter(P002005 > P002002) %>% dplyr::pull(GEOID)
 
   df <- us_covid_county %>% filter(! GEOID %in% rural_counties)
-  attr(df, "loc") <- "Rural Counties"
+  loc <- "Rural Counties"
+  if (! is.null(state)) {
+    state <- str_to_title(state)
+    df <- df %>% filter(state %in% !!state)
+    if (length(state) > 1) {
+      state <- state.abbr[state.name %in% state]
+    }
+    loc <- str_c(loc, " in ", str_c(state, collapse = ", "))
+  }
+  attr(df, "loc") <- loc
   invisible(df)
 }
 
