@@ -118,7 +118,8 @@ select_data <- function(state, county = NULL, complement = FALSE) {
 rural_data <- function(state = NULL) {
   if (! exists(".rural_counties", envir = globalenv()) ||
       ! is.environment(globalenv()$.rural_counties)) {
-    globalenv()$.rural_counties <- new.env(parent = globalenv())
+    .rural_counties <- new.env(parent = globalenv())
+    assign(".rural_counties", .rural_counties, envir = globalenv())
   }
   if (! exists("rural_counties", envir = .rural_counties)) {
     rural_counties <- tidycensus::get_decennial("county",
