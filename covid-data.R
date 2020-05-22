@@ -205,7 +205,7 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     last_day <- wday(tail(df$date, 1))
     delta <- 7 - last_day
     df <- df %>% mutate(wday = (wday(date) + delta - 1) %% 7 + 1,
-                        wdate = date - days(wday - 7)) %>%
+                        wdate = date - days(wday - 3) + hours(12)) %>%
       group_by(wdate) %>%
       summarize(cases = sum(cases, na.rm = TRUE),
                 new_cases = sum(new_cases, na.rm = TRUE),
@@ -216,6 +216,8 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
       mutate(wday = wday(wdate)) %>%
       rename(date = wdate)
   }
+
+  df <- df %>% mutate(date = as_datetime(date))
 
   if (! is.na(filter_len) && filter_len < 2) {
     filter_len <- NA
@@ -302,7 +304,8 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     if (weekly) {
     p <- p +
       geom_col(aes(fill = !!raw_label, color = !!raw_label,
-                   size = !!raw_label, width = ceiling(0.8 * days)),
+                   size = !!raw_label),
+               width = as.numeric(days(6)),
                na.rm = TRUE)
     } else {
     p <- p +
@@ -334,7 +337,8 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
 adjust_scale <- function(p, start = ymd("2020-03-01"), day = 1, skip = 1) {
   if (is.character(start))
     start <- ymd(start)
-  end <- ymd("2020-12-31")
+  start <- as_datetime(start)
+  end <- ymd("2020-12-31") %>% as_datetime()
   b <- seq(start, end, by = "day") %>%
     keep(~wday(.x) == day)
   if (skip < 1) {
@@ -344,13 +348,13 @@ adjust_scale <- function(p, start = ymd("2020-03-01"), day = 1, skip = 1) {
   }
   b <- b %>% keep(., (seq_along(.) - 1) %% (skip + 1) == 0)
   if (! is.null(mb)) {
-    mb <- setdiff(mb, b) %>% as_date()
+    mb <- setdiff(mb, b) %>% as_datetime()
   }
 
   plot_breaks <<- b
   plot_minor_breaks <<- mb
 
-  p + scale_x_date(limits = c(start, NA),
+  p + scale_x_datetime(limits = c(start, NA),
                    breaks = b, minor_breaks = mb,
                    date_labels = "%b %d")
 }
