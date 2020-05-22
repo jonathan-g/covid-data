@@ -133,7 +133,7 @@ rural_data <- function(state = NULL) {
   }
   rural_counties <- get("rural_counties", envir = .rural_counties)
   df <- us_covid_county %>% filter(GEOID %in% rural_counties)
-  loc <- "Rural Counties"
+  loc <- "rural counties"
   if (! is.null(state)) {
     state <- str_to_title(state)
     df <- df %>% filter(state %in% !!state)
@@ -150,10 +150,16 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
                              type = c("bar", "line"),
                              filter_len = 7,
                              align = c("right", "center", "left"),
+                             weekly = FALSE,
                              clamp_zero = FALSE, loc = NULL) {
   var <- match.arg(var)
   filter_align <- match.arg(align)
   type <- match.arg(type)
+
+  if (weekly && ! is.null(filter_len) && ! is.na(filter_len) &&
+      filter_len <= 7) {
+    filter_len <- NA
+  }
 
   svar <- ensym(var)
   nvar <- str_c("new_", var)
@@ -178,7 +184,8 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     lab_var <- str_to_sentence(str_c("New", var, sep = " "))
     title_var <- str_c("New COVID-19", var, sep = " ")
   } else {
-    lab_var <- str_to_sentence(str_c("Daily", var, sep = " "))
+    lab_var <- str_to_sentence(str_c(ifelse(weekly, "Weekly", "Daily"),
+                                     var, sep = " "))
     title_var <- str_c("COVID-19", var, sep = " ")
   }
 
@@ -187,16 +194,30 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
   } else {
     loc <- str_c(" in ", loc)
   }
-  title_str <- str_c(title_var, loc, " by day")
+  title_str <- str_c(title_var, loc, " by ", ifelse(weekly, "week", "day"))
 
   df <- df %>% group_by(date) %>%
     summarize_at(vars(cases, deaths, new_cases, new_deaths),
                  ~sum(., na.rm = TRUE)) %>%
     ungroup()
 
-  # plot_2_df <<- df
+  if (weekly) {
+    last_day <- wday(tail(df$date, 1))
+    delta <- 7 - last_day
+    df <- df %>% mutate(wday = (wday(date) + delta - 1) %% 7 + 1,
+                        wdate = date - days(wday - 7)) %>%
+      group_by(wdate) %>%
+      summarize(cases = sum(cases, na.rm = TRUE),
+                new_cases = sum(new_cases, na.rm = TRUE),
+                deaths = sum(deaths, na.rm = TRUE),
+                new_deaths = sum(new_deaths, na.rm = TRUE),
+                days = n()) %>%
+      ungroup() %>%
+      mutate(wday = wday(wdate)) %>%
+      rename(date = wdate)
+  }
 
-  if (filter_len < 2) {
+  if (! is.na(filter_len) && filter_len < 2) {
     filter_len <- NA
   }
 
@@ -260,7 +281,7 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     fil_scale <- scale_fill_manual(values = "darkblue", name = NULL)
     size_scale <- scale_size_manual(values = 1, name = NULL)
     theme_extra <- theme()
-    guide_extra <- guides(color = "none", size = "none")
+    guide_extra <- guides(color = "none", size = "none", fill = "none")
   }
 
   plot_df <<- df
@@ -278,19 +299,30 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     p <- p +
       geom_line(na.rm = TRUE)
   } else {
+    if (weekly) {
+    p <- p +
+      geom_col(aes(fill = !!raw_label, color = !!raw_label,
+                   size = !!raw_label, width = ceiling(0.8 * days)),
+               na.rm = TRUE)
+    } else {
     p <- p +
       geom_col(aes(fill = !!raw_label, color = !!raw_label,
                    size = !!raw_label),
-               na.rm = TRUE) +
+               na.rm = TRUE)
+    }
+    if (! is.na(filter_len)) {
+      p <- p +
       geom_line(aes(y = !!sf_var, color = !!sf_label, fill = !!sf_label,
                     size = !!sf_label),
                 na.rm = TRUE)
+    }
   }
   p <- p +
     col_scale + size_scale
   if (type == "bar") {
     p <- p + fil_scale
   }
+
   p <- p +
     guide_extra +
     labs(x = "Date", y = lab_var, title = title_str) +
