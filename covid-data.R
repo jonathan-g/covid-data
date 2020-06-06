@@ -42,12 +42,6 @@ load_data <- function(init_globals = FALSE) {
     invisible(df)
   }
 
-  startup <- function() {
-    initialize_git_tokens()
-    update_repos()
-    load_data(TRUE)
-  }
-
   process_county_data <- function(src, var = c("cases", "deaths")) {
     var <- match.arg(var)
     svar <- ensym(var)
@@ -83,6 +77,12 @@ load_data <- function(init_globals = FALSE) {
     assign("us_covid_county", us_covid_county, envir = globalenv())
   }
   invisible(list(us_covid = us_covid, us_covid_county = us_covid_county))
+}
+
+startup <- function() {
+  initialize_git_tokens()
+  update_repos()
+  load_data(TRUE)
 }
 
 select_data <- function(state, county = NULL, complement = FALSE) {
