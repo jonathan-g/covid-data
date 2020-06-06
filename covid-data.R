@@ -19,15 +19,18 @@ update_repos <- function() {
   git2r::pull(git2r::repository("data/nytimes/"), credentials = github_cred)
 }
 
-load_data <- function(init_globals = FALSE) {
+load_data <- function(init_globals = FALSE, quiet = FALSE) {
+  if (! quiet) message("Loading data ...")
   us_cases <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv")
   us_deaths <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv")
+  if (! quiet) message("... done loading data ")
 
   process_data <- function(src, var = c("cases", "deaths")) {
     var <- match.arg(var)
     svar <- ensym(var)
     new_var <- str_c("new_", var)
 
+    if (! quiet) message("Processing national data...")
     df <- src %>%
       select(state = Province_State,
              matches("[0-9]+/[0-9]+/[0-9]+")) %>%
@@ -39,6 +42,7 @@ load_data <- function(init_globals = FALSE) {
       group_by(state) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
       ungroup()
+    if (! quiet) message("... done processing national data.")
     invisible(df)
   }
 
@@ -47,6 +51,7 @@ load_data <- function(init_globals = FALSE) {
     svar <- ensym(var)
     new_var <- str_c("new_", var)
 
+    if (! quiet) message("Processing county data...")
     df <- src %>%
       select(county = Admin2, state = Province_State, GEOID = FIPS,
              matches("[0-9]+/[0-9]+/[0-9]+")) %>%
@@ -60,17 +65,23 @@ load_data <- function(init_globals = FALSE) {
       group_by(state, county, GEOID) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
       ungroup()
+    if (! quiet) message("... done processing county data.")
     invisible(df)
   }
 
+  if (! quiet) message("Preparing US data...")
   us_covid <- process_data(us_cases, "cases") %>%
     full_join(process_data(us_deaths, "deaths"), by = c("state", "date")) %>%
     arrange(state, date)
+  if (! quiet) message("Done preparing US data.")
 
+
+  if (! quiet) message("Preparing county data...")
   us_covid_county <- process_county_data(us_cases, "cases") %>%
     full_join(process_county_data(us_deaths, "deaths"),
               by = c("state", "county", "GEOID", "date")) %>%
     arrange(state, county, GEOID, date)
+  if (! quiet) message("Done preparing county data.")
 
   if (init_globals) {
     assign("us_covid", us_covid, envir = globalenv())
@@ -79,7 +90,28 @@ load_data <- function(init_globals = FALSE) {
   invisible(list(us_covid = us_covid, us_covid_county = us_covid_county))
 }
 
-select_data <- function(state, county = NULL, complement = FALSE) {
+check_state <- function(state) {
+  if (missing(state) || is.null(state) || is.na(state) ||
+      length(state) == 1 && str_to_upper(state) == "USA") {
+    state <- "USA"
+  } else {
+    abbs <- ! str_to_title(state) %in% state.name &
+      str_to_upper(state) %in% state.abb
+    if (any(abbs)) {
+      state[abbs] <- map_chr(str_to_upper(state[abbs]),
+                             ~state.name[state.abb == .x])
+    }
+  }
+  state
+}
+
+select_data <- function(state = NULL, county = NULL, complement = FALSE) {
+  state <- check_state(state)
+  if (state == "USA") {
+    df <- us_covid
+    attr(df, "loc") <- "the United States"
+    return(invisible(df))
+  }
   state <- str_to_title(state)
   if (length(state) > 2) {
     state_names <- state.abb[state.name %in% state]
@@ -115,7 +147,8 @@ select_data <- function(state, county = NULL, complement = FALSE) {
   invisible(df)
 }
 
-rural_data <- function(state = NULL) {
+rural_data <- function(state = NULL, urban = FALSE) {
+  state <- check_state(state)
   if (! exists(".rural_counties", envir = globalenv()) ||
       ! is.environment(globalenv()$.rural_counties)) {
     .rural_counties <- new.env(parent = globalenv())
@@ -132,9 +165,13 @@ rural_data <- function(state = NULL) {
     assign("rural_counties", rural_counties, envir = .rural_counties)
   }
   rural_counties <- get("rural_counties", envir = .rural_counties)
-  df <- us_covid_county %>% filter(GEOID %in% rural_counties)
+  if (urban) {
+    df <- us_covid_county %>% filter(! GEOID %in% rural_counties)
+  } else {
+    df <- us_covid_county %>% filter(GEOID %in% rural_counties)
+  }
   loc <- "rural counties"
-  if (! is.null(state)) {
+  if (state != "USA") {
     state <- str_to_title(state)
     df <- df %>% filter(state %in% !!state)
     if (length(state) > 1) {
@@ -302,22 +339,22 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
       geom_line(na.rm = TRUE)
   } else {
     if (weekly) {
-    p <- p +
-      geom_col(aes(fill = !!raw_label, color = !!raw_label,
-                   size = !!raw_label),
-               width = as.numeric(days(6)),
-               na.rm = TRUE)
+      p <- p +
+        geom_col(aes(fill = !!raw_label, color = !!raw_label,
+                     size = !!raw_label),
+                 width = as.numeric(days(6)),
+                 na.rm = TRUE)
     } else {
-    p <- p +
-      geom_col(aes(fill = !!raw_label, color = !!raw_label,
-                   size = !!raw_label),
-               na.rm = TRUE)
+      p <- p +
+        geom_col(aes(fill = !!raw_label, color = !!raw_label,
+                     size = !!raw_label),
+                 na.rm = TRUE)
     }
     if (! is.na(filter_len)) {
       p <- p +
-      geom_line(aes(y = !!sf_var, color = !!sf_label, fill = !!sf_label,
-                    size = !!sf_label),
-                na.rm = TRUE)
+        geom_line(aes(y = !!sf_var, color = !!sf_label, fill = !!sf_label,
+                      size = !!sf_label),
+                  na.rm = TRUE)
     }
   }
   p <- p +
@@ -355,6 +392,6 @@ adjust_scale <- function(p, start = ymd("2020-03-01"), day = 1, skip = 1) {
   plot_minor_breaks <<- mb
 
   p + scale_x_datetime(limits = c(start, NA),
-                   breaks = b, minor_breaks = mb,
-                   date_labels = "%b %d")
+                       breaks = b, minor_breaks = mb,
+                       date_labels = "%b %d")
 }
