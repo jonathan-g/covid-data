@@ -42,6 +42,12 @@ load_data <- function(init_globals = FALSE) {
     invisible(df)
   }
 
+  startup <- function() {
+    initialize_git_tokens()
+    update_repos()
+    load_data(TRUE)
+  }
+
   process_county_data <- function(src, var = c("cases", "deaths")) {
     var <- match.arg(var)
     svar <- ensym(var)
