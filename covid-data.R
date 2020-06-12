@@ -1,6 +1,7 @@
 library(tidyverse)
 library(magrittr)
 library(lubridate)
+library(dtplyr)
 library(slider)
 
 initialize_git_tokens <- function() {
@@ -34,14 +35,17 @@ load_data <- function(init_globals = FALSE, quiet = FALSE) {
     df <- src %>%
       select(state = Province_State,
              matches("[0-9]+/[0-9]+/[0-9]+")) %>%
+      mutate(state = factor(state)) %>%
       pivot_longer(-state, names_to = "date", values_to = var) %>%
+      lazy_dt() %>%
       mutate(date = mdy(date)) %>%
       group_by(state, date) %>%
       summarize_all(~sum(., na.rm = TRUE)) %>% ungroup() %>%
       arrange(state, date) %>%
       group_by(state) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
-      ungroup()
+      ungroup() %>%
+      as_tibble()
     if (! quiet) message("... done processing national data.")
     invisible(df)
   }
@@ -51,34 +55,42 @@ load_data <- function(init_globals = FALSE, quiet = FALSE) {
     svar <- ensym(var)
     new_var <- str_c("new_", var)
 
-    if (! quiet) message("Processing county data...")
+    if (! quiet) message("Processing county data...(",
+                         str_c(dim(src), collapse = ", "), ")")
     df <- src %>%
       select(county = Admin2, state = Province_State, GEOID = FIPS,
              matches("[0-9]+/[0-9]+/[0-9]+")) %>%
+      mutate_at(vars("state", "county"), factor) %>%
       pivot_longer(c(-state, -county, -GEOID),
                    names_to = "date", values_to = var) %>%
-      mutate(date = mdy(date), GEOID = sprintf("%05d", as.integer(GEOID))) %>%
+      mutate(date = mdy(date),
+             GEOID = GEOID %>% as.integer() %>% sprintf("%05d", .) %>%
+               factor()) %>%
+      lazy_dt() %>%
       group_by(state, county, GEOID, date) %>%
       summarize_all(~sum(., na.rm = TRUE)) %>%
       ungroup() %>%
       arrange(state, county, GEOID, date) %>%
       group_by(state, county, GEOID) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
-      ungroup()
+      ungroup() %>%
+      as_tibble()
     if (! quiet) message("... done processing county data.")
     invisible(df)
   }
 
   if (! quiet) message("Preparing US data...")
-  us_covid <- process_data(us_cases, "cases") %>%
-    full_join(process_data(us_deaths, "deaths"), by = c("state", "date")) %>%
+  cases <- process_data(us_cases, "cases")
+  deaths <- process_data(us_deaths, "deaths")
+  us_covid <- full_join(cases, deaths, by = c("state", "date")) %>%
     arrange(state, date)
   if (! quiet) message("Done preparing US data.")
 
 
   if (! quiet) message("Preparing county data...")
-  us_covid_county <- process_county_data(us_cases, "cases") %>%
-    full_join(process_county_data(us_deaths, "deaths"),
+    county_cases <- process_county_data(us_cases, "cases")
+  county_deaths <- process_county_data(us_deaths, "deaths")
+  us_covid_county <- full_join(county_cases, county_deaths,
               by = c("state", "county", "GEOID", "date")) %>%
     arrange(state, county, GEOID, date)
   if (! quiet) message("Done preparing county data.")
