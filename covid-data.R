@@ -125,7 +125,7 @@ check_state <- function(state) {
 
 select_data <- function(state = NULL, county = NULL, complement = FALSE) {
   state <- check_state(state)
-  if (state == "USA") {
+  if (length(state) == 1 && str_to_upper(state) == "USA") {
     df <- us_covid
     attr(df, "loc") <- "the United States"
     return(invisible(df))
@@ -146,6 +146,11 @@ select_data <- function(state = NULL, county = NULL, complement = FALSE) {
     loc <- str_c("Except ", loc)
   }
 
+  if (! all(state %in% us_covid$state)) {
+    stop("Bad state names: ", str_c(setdiff(state, us_covid$state),
+                                    collapse = ", "))
+  }
+
   if (is.null(county)) {
     if (complement) {
       df <- us_covid %>% filter(! state %in% !!state)
@@ -154,12 +159,16 @@ select_data <- function(state = NULL, county = NULL, complement = FALSE) {
     }
   } else {
     if (complement) {
-      df <- us_covid_county %>%
-        filter(! (state %in% !!state & county %in% !!county))
+      df <- us_covid_county %>% filter(! state %in% !!state)
     } else {
-      df <- us_covid_county %>%
-        filter(state %in% !!state, county %in% !!county)
+      df <- us_covid_county %>% filter(state %in% !!state)
     }
+    counties <- df %>% pull(county) %>% unique() %>% sort()
+    if (! all(county %in% counties)) {
+      stop("Bad county names: ", str_c(setdiff(county, counties),
+                                       collapse = ", "))
+    }
+    df <- df %>% filter(county %in% !!county)
   }
   attr(df, "loc") <- loc
   invisible(df)
@@ -189,7 +198,7 @@ rural_data <- function(state = NULL, urban = FALSE) {
     df <- us_covid_county %>% filter(GEOID %in% rural_counties)
   }
   loc <- "rural counties"
-  if (state != "USA") {
+  if (length(state) != 1 || str_to_upper(state) != "USA") {
     state <- str_to_title(state)
     df <- df %>% filter(state %in% !!state)
     if (length(state) > 1) {
