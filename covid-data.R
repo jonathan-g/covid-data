@@ -40,7 +40,8 @@ load_data <- function(init_globals = FALSE, quiet = FALSE) {
       lazy_dt() %>%
       mutate(date = mdy(date)) %>%
       group_by(state, date) %>%
-      summarize_all(~sum(., na.rm = TRUE)) %>% ungroup() %>%
+      summarize(across(everything(), ~sum(., na.rm = TRUE)),
+                .groups = "drop") %>%
       arrange(state, date) %>%
       group_by(state) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
@@ -68,8 +69,8 @@ load_data <- function(init_globals = FALSE, quiet = FALSE) {
                factor()) %>%
       lazy_dt() %>%
       group_by(state, county, GEOID, date) %>%
-      summarize_all(~sum(., na.rm = TRUE)) %>%
-      ungroup() %>%
+      summarize(across(everything(), ~sum(., na.rm = TRUE)),
+                .groups = "drop") %>%
       arrange(state, county, GEOID, date) %>%
       group_by(state, county, GEOID) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
@@ -215,7 +216,7 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
                              filter_len = 7,
                              align = c("right", "center", "left"),
                              weekly = FALSE,
-                             clamp_zero = FALSE, loc = NULL) {
+                             clamp_zero = TRUE, loc = NULL) {
   var <- match.arg(var)
   filter_align <- match.arg(align)
   type <- match.arg(type)
@@ -261,9 +262,9 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
   title_str <- str_c(title_var, loc, " by ", ifelse(weekly, "week", "day"))
 
   df <- df %>% group_by(date) %>%
-    summarize_at(vars(cases, deaths, new_cases, new_deaths),
-                 ~sum(., na.rm = TRUE)) %>%
-    ungroup()
+    summarize(across(c(cases, deaths, new_cases, new_deaths),
+                 ~sum(., na.rm = TRUE)),
+              .groups = "drop")
 
   if (weekly) {
     last_day <- wday(tail(df$date, 1))
@@ -275,8 +276,8 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
                 new_cases = sum(new_cases, na.rm = TRUE),
                 deaths = sum(deaths, na.rm = TRUE),
                 new_deaths = sum(new_deaths, na.rm = TRUE),
-                days = n()) %>%
-      ungroup() %>%
+                days = n(),
+                .groups = "drop") %>%
       mutate(wday = wday(wdate)) %>%
       rename(date = wdate)
   }
