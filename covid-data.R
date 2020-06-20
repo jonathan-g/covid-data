@@ -40,8 +40,8 @@ load_data <- function(init_globals = FALSE, quiet = FALSE) {
       lazy_dt() %>%
       mutate(date = mdy(date)) %>%
       group_by(state, date) %>%
-      summarize(across(everything(), ~sum(., na.rm = TRUE)),
-                .groups = "drop") %>%
+      summarize_all(~sum(., na.rm = TRUE)) %>%
+      ungroup() %>%
       arrange(state, date) %>%
       group_by(state) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
@@ -69,8 +69,8 @@ load_data <- function(init_globals = FALSE, quiet = FALSE) {
                factor()) %>%
       lazy_dt() %>%
       group_by(state, county, GEOID, date) %>%
-      summarize(across(everything(), ~sum(., na.rm = TRUE)),
-                .groups = "drop") %>%
+      summarize_all(~sum(., na.rm = TRUE)) %>%
+      ungroup() %>%
       arrange(state, county, GEOID, date) %>%
       group_by(state, county, GEOID) %>%
       mutate(!!new_var := !!svar - lag(!!svar)) %>%
