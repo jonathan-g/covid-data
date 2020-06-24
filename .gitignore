@@ -5,3 +5,5 @@
 *.Rproj
 /*.png
 /*.jpg
+/data/hopkins/
+/data/nytimes/

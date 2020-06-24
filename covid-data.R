@@ -16,8 +16,19 @@ initialize_git_tokens <- function() {
 
 update_repos <- function() {
   github_cred <- git2r::cred_token("GITHUB_PAT")
+  if (! dir.exists("data/hopkins")) {
+   git2r::clone("https://github.com/CSSEGISandData/COVID-19.git",
+                "data/hopkins", progress = FALSE, credentials = github_cred)
+  } else {
   git2r::pull(git2r::repository("data/hopkins/"), credentials = github_cred)
+  }
+  if (! dir.exists("data/nytimes")) {
+    git2r::clone("https://github.com/nytimes/covid-19-data.git",
+                 "data/nytimes", progress = FALSE, credentials = github_cred)
+
+  } else {
   git2r::pull(git2r::repository("data/nytimes/"), credentials = github_cred)
+  }
 }
 
 load_data <- function(init_globals = FALSE, quiet = FALSE) {
