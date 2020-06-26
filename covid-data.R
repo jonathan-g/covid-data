@@ -148,11 +148,28 @@ select_data <- function(state = NULL, county = NULL, complement = FALSE) {
   } else {
     state_names <- state
   }
+  state_names <- sort(state_names)
   if (! is.null(county)) {
-    county <- str_to_title(county)
-    loc <- str_c(county, " County, ", state_names, collapse = ", ")
+    county <- str_to_title(county) %>% sort()
+    if (length(state_names) > 1) {
+      loc <- str_c(county, " County, ", state_names, collapse = ", ")
+    } else {
+      if (length(county) > 1) {
+        if (length(county > 2)) {
+          state_names <- state.abb[state.name %in% state] %>% sort()
+          loc <- str_c(head(county, -1), collapse = ", ") %>%
+            str_c(tail(county, 1), sep = ", and ")
+        } else {
+          loc <- str_c(county, collapse = " and ")
+        }
+        loc <- str_c(loc, " Counties")
+      } else {
+        loc <- str_c(county, " County")
+      }
+      loc <- str_c(loc, state_names, sep = ", ")
+    }
   } else {
-    loc <- str_c(state_names, collapse = ", ")
+    loc <- str_c(loc, state_names, sep = ", ")
   }
   if (complement) {
     loc <- str_c("Except ", loc)
@@ -222,6 +239,24 @@ rural_data <- function(state = NULL, urban = FALSE) {
   invisible(df)
 }
 
+summarize_weekly <- function(df) {
+  last_day <- wday(tail(df$date, 1))
+  delta <- 7 - last_day
+  df <- df %>% mutate(wday = (wday(date) + delta - 1) %% 7 + 1,
+                      wdate = date - days(wday - 3) + hours(12)) %>%
+    group_by(wdate) %>%
+    summarize(cases = sum(cases, na.rm = TRUE),
+              new_cases = sum(new_cases, na.rm = TRUE),
+              deaths = sum(deaths, na.rm = TRUE),
+              new_deaths = sum(new_deaths, na.rm = TRUE),
+              days = n(),
+              end_date = max(date),
+              .groups = "drop") %>%
+    mutate(wday = wday(wdate), end_wday = wday(end_date)) %>%
+    rename(date = wdate)
+
+}
+
 plot_time_series <- function(df, var = c("cases", "deaths"),
                              type = c("bar", "line"),
                              filter_len = 7,
@@ -278,19 +313,7 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
               .groups = "drop")
 
   if (weekly) {
-    last_day <- wday(tail(df$date, 1))
-    delta <- 7 - last_day
-    df <- df %>% mutate(wday = (wday(date) + delta - 1) %% 7 + 1,
-                        wdate = date - days(wday - 3) + hours(12)) %>%
-      group_by(wdate) %>%
-      summarize(cases = sum(cases, na.rm = TRUE),
-                new_cases = sum(new_cases, na.rm = TRUE),
-                deaths = sum(deaths, na.rm = TRUE),
-                new_deaths = sum(new_deaths, na.rm = TRUE),
-                days = n(),
-                .groups = "drop") %>%
-      mutate(wday = wday(wdate)) %>%
-      rename(date = wdate)
+    df <- summarize_weekly(df)
   }
 
   df <- df %>% mutate(date = as_datetime(date))
@@ -407,6 +430,7 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     labs(x = "Date", y = lab_var, title = title_str) +
     theme_bw() +
     theme_extra
+  p <- adjust_scale(p, day = ifelse(weekly, tail(df$end_wday,1), 1))
   p
 }
 
