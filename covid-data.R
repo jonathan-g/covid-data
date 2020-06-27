@@ -17,17 +17,17 @@ initialize_git_tokens <- function() {
 update_repos <- function() {
   github_cred <- git2r::cred_token("GITHUB_PAT")
   if (! dir.exists("data/hopkins")) {
-   git2r::clone("https://github.com/CSSEGISandData/COVID-19.git",
-                "data/hopkins", progress = FALSE, credentials = github_cred)
+    git2r::clone("https://github.com/CSSEGISandData/COVID-19.git",
+                 "data/hopkins", progress = FALSE, credentials = github_cred)
   } else {
-  git2r::pull(git2r::repository("data/hopkins/"), credentials = github_cred)
+    git2r::pull(git2r::repository("data/hopkins/"), credentials = github_cred)
   }
   if (! dir.exists("data/nytimes")) {
     git2r::clone("https://github.com/nytimes/covid-19-data.git",
                  "data/nytimes", progress = FALSE, credentials = github_cred)
 
   } else {
-  git2r::pull(git2r::repository("data/nytimes/"), credentials = github_cred)
+    git2r::pull(git2r::repository("data/nytimes/"), credentials = github_cred)
   }
 }
 
@@ -100,10 +100,10 @@ load_data <- function(init_globals = FALSE, quiet = FALSE) {
 
 
   if (! quiet) message("Preparing county data...")
-    county_cases <- process_county_data(us_cases, "cases")
+  county_cases <- process_county_data(us_cases, "cases")
   county_deaths <- process_county_data(us_deaths, "deaths")
   us_covid_county <- full_join(county_cases, county_deaths,
-              by = c("state", "county", "GEOID", "date")) %>%
+                               by = c("state", "county", "GEOID", "date")) %>%
     arrange(state, county, GEOID, date)
   if (! quiet) message("Done preparing county data.")
 
@@ -135,6 +135,17 @@ check_state <- function(state) {
   state
 }
 
+oxford_c <- function(x) {
+  if (length(x) > 2) {
+    res <- str_c(head(x, -1), collapse = ", ") %>%
+      str_c(tail(x, 1), sep = ", and ")
+  } else {
+    res <- str_c(x, collapse = " and ")
+  }
+  res
+}
+
+
 select_data <- function(state = NULL, county = NULL, complement = FALSE) {
   state <- check_state(state)
   if (length(state) == 1 && str_to_upper(state) == "USA") {
@@ -152,24 +163,18 @@ select_data <- function(state = NULL, county = NULL, complement = FALSE) {
   if (! is.null(county)) {
     county <- str_to_title(county) %>% sort()
     if (length(state_names) > 1) {
-      loc <- str_c(county, " County, ", state_names, collapse = ", ")
+      loc <- str_c(county, " County, ", state_names) %>%
+        oxford_c()
     } else {
-      if (length(county) > 1) {
-        if (length(county > 2)) {
-          state_names <- state.abb[state.name %in% state] %>% sort()
-          loc <- str_c(head(county, -1), collapse = ", ") %>%
-            str_c(tail(county, 1), sep = ", and ")
-        } else {
-          loc <- str_c(county, collapse = " and ")
-        }
-        loc <- str_c(loc, " Counties")
-      } else {
-        loc <- str_c(county, " County")
+      if (length(county > 2)) {
+        state_names <- state.abb[state.name %in% state] %>% sort()
       }
-      loc <- str_c(loc, state_names, sep = ", ")
+      loc <- oxford_c(county) %>%
+        str_c(ifelse(length(county) > 1, "Counties", "County"), sep = " ") %>%
+        str_c(state_names, sep = ", ")
     }
   } else {
-    loc <- str_c(loc, state_names, sep = ", ")
+    loc <- oxford_c(state_names)
   }
   if (complement) {
     loc <- str_c("Except ", loc)
@@ -309,7 +314,7 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
 
   df <- df %>% group_by(date) %>%
     summarize(across(c(cases, deaths, new_cases, new_deaths),
-                 ~sum(., na.rm = TRUE)),
+                     ~sum(., na.rm = TRUE)),
               .groups = "drop")
 
   if (weekly) {
