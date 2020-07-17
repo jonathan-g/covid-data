@@ -244,12 +244,12 @@ rural_data <- function(state = NULL, urban = FALSE) {
   invisible(df)
 }
 
-summarize_weekly <- function(df) {
+summarize_weekly <- function(df, do_add = TRUE) {
   last_day <- wday(tail(df$date, 1))
   delta <- 7 - last_day
   df <- df %>% mutate(wday = (wday(date) + delta - 1) %% 7 + 1,
                       wdate = date - days(wday - 3) + hours(12)) %>%
-    group_by(wdate) %>%
+    group_by(wdate, .add = do_add) %>%
     summarize(cases = sum(cases, na.rm = TRUE),
               new_cases = sum(new_cases, na.rm = TRUE),
               deaths = sum(deaths, na.rm = TRUE),
@@ -263,11 +263,13 @@ summarize_weekly <- function(df) {
 }
 
 plot_time_series <- function(df, var = c("cases", "deaths"),
+                             weekly = TRUE,
+                             facet = FALSE,
                              type = c("bar", "line"),
                              filter_len = 7,
                              align = c("right", "center", "left"),
-                             weekly = FALSE,
-                             clamp_zero = TRUE, loc = NULL) {
+                             clamp_zero = TRUE, loc = NULL,
+                             facet_scales = "free_y") {
   var <- match.arg(var)
   filter_align <- match.arg(align)
   type <- match.arg(type)
@@ -312,13 +314,34 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
   }
   title_str <- str_c(title_var, loc, " by ", ifelse(weekly, "week", "day"))
 
-  df <- df %>% group_by(date) %>%
-    summarize(across(c(cases, deaths, new_cases, new_deaths),
-                     ~sum(., na.rm = TRUE)),
-              .groups = "drop")
+  n_states <- nlevels(df$state)
+  n_counties <- 0
+  if (has_name(df, "county")) {
+    n_counties <- nlevels(df$county)
+  }
+
+  df <- df %>% group_by(date)
+  if (facet) {
+    if (n_states == 1) {
+      df <- df %>% group_by(state, county, .add = TRUE)
+    } else {
+      df <- df %>% group_by(state, .add = TRUE)
+    }
+  }
+  df <- df %>%
+  summarize(across(c(cases, deaths, new_cases, new_deaths),
+                   ~sum(., na.rm = TRUE)),
+            .groups = "drop")
 
   if (weekly) {
-    df <- summarize_weekly(df)
+    if (facet) {
+      if (n_states == 1) {
+        df <- df %>% group_by(state, county)
+      } else {
+        df <- df %>% group_by(state)
+      }
+    }
+    df <- summarize_weekly(df, do_add = TRUE)
   }
 
   df <- df %>% mutate(date = as_datetime(date))
@@ -390,14 +413,18 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     guide_extra <- guides(color = "none", size = "none", fill = "none")
   }
 
-  plot_df <<- df
-  plot_mapping <<- mapping
-  plot_col_scale <<- col_scale
-  plot_size_scale <<- size_scale
-  plot_guide_extra <<- guide_extra
-  plot_title_str <<- title_str
-  plot_lab_str <<- lab_var
-  plot_theme <<- theme_extra
+  y_scale <- scale_y_continuous(limits = c(0, NA),
+                                expand = expansion(mult = c(0, 0.1),
+                                                   add = c(0, 1)))
+
+  # plot_df <<- df
+  # plot_mapping <<- mapping
+  # plot_col_scale <<- col_scale
+  # plot_size_scale <<- size_scale
+  # plot_guide_extra <<- guide_extra
+  # plot_title_str <<- title_str
+  # plot_lab_str <<- lab_var
+  # plot_theme <<- theme_extra
   #
 
   p <- ggplot(df, mapping = mapping)
@@ -430,7 +457,16 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     p <- p + fil_scale
   }
 
+  if (facet) {
+    if (n_states == 1) {
+      p <- p + facet_wrap(~county, scales = facet_scales)
+    } else {
+      p <- p + facet_wrap(~state, scales = facet_scales)
+    }
+  }
+
   p <- p +
+    y_scale +
     guide_extra +
     labs(x = "Date", y = lab_var, title = title_str) +
     theme_bw() +
