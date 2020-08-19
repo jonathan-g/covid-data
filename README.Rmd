@@ -1,0 +1,70 @@
+---
+title: "COVID Data Analysis"
+author: "Jonathan Gilligan"
+output:
+  github_document: default
+---
+```{r setup, echo=FALSE, include=FALSE, eval=TRUE}
+library(knitr)
+library(tidyverse)
+
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
+
+source("covid-data.R")
+startup()
+```
+# covid-data
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+## Description 
+
+This is a collection of R scripts that I use for plotting daily and weekly 
+COVID-19 data (case counts and deaths) for counties in the United States.
+These scripts use the data collected and curated by the Johns Hopkins 
+Center for Systems Science and Engineering (CSSE), which the Center kindly
+makes available at <https://github.com/CSSEGISandData/COVID-19>.
+
+To use these scripts, initialize by running the function `startup()`, which 
+downloads the latest data from GitHub and prepares it for use.
+You can get data for one or more states or counties with 
+`select_data()` or `rural_data()`. 
+
+* `select_data()` allows you to specify one or more states or one or more 
+  counties within a single state. If you call it with no arguments, it will
+  return data for the whole US.
+* `rural_data()` allows you to look at data only from rural counties in one or
+  more states.
+  
+* I plot data using `plot_time_series()`, which has a number of options to 
+  control the way that the data is plotted.
+  
+## Examples
+
+Plot weekly COVID-19 deaths for the whole US:
+```{r example_1, echo=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+select_data() %>% plot_time_series("deaths")
+```
+
+Plot daily new cases for the whole US
+```{r example_2, echo=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+select_data() %>% plot_time_series("cases", weekly = FALSE)
+```
+
+Plot weekly case data for a single county (Davidson County, TN)
+```{r example_county, echo=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+select_data("TN", "Davidson") %>% plot_time_series("cases", weekly = TRUE)
+```
+
+Make a facet plot for multiple states:
+```{r example_facet, message=FALSE, warning=FALSE}
+select_data(c("TX", "LA", "MS", "AL", "FL", "GA", "SC", "NC", "TN")) %>%
+  plot_time_series("deaths", facet = TRUE)
+```
+
+Make a plot for rural counties in several states:
+```{r example_rural, message=FALSE, warning=FALSE}
+rural_data(c("TX", "LA", "MS", "AL", "FL", "GA")) %>%
+  plot_time_series("deaths", weekly = FALSE)
+```

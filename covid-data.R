@@ -43,8 +43,8 @@ update_repos <- function() {
 
 load_data <- function(init_globals = FALSE, quiet = FALSE) {
   if (! quiet) message("Loading data ...")
-  us_cases <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv")
-  us_deaths <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv")
+  us_cases <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv") # nolint
+  us_deaths <- read_csv("data/hopkins/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv") # nolint
   if (! quiet) message("... done loading data ")
 
   process_data <- function(src, var = c("cases", "deaths")) {
@@ -86,7 +86,9 @@ load_data <- function(init_globals = FALSE, quiet = FALSE) {
       pivot_longer(c(-state, -county, -GEOID),
                    names_to = "date", values_to = var) %>%
       mutate(date = mdy(date),
-             GEOID = GEOID %>% as.integer() %>% sprintf("%05d", .) %>%
+             GEOID = GEOID %>%
+               as.integer() %>%
+               sprintf("%05d", .) %>%
                factor()) %>%
       lazy_dt() %>%
       group_by(state, county, GEOID, date) %>%
@@ -227,12 +229,14 @@ rural_data <- function(state = NULL, urban = FALSE) {
   }
   if (! exists("rural_counties", envir = .rural_counties)) {
     rural_counties <- tidycensus::get_decennial("county",
-                                                c("P002001", "P002002", "P002005"),
+                                                c("P002001", "P002002",
+                                                  "P002005"),
                                                 cache_table = TRUE,
                                                 cache = TRUE,
                                                 year = 2010) %>%
       pivot_wider(names_from = "variable", values_from = "value") %>%
-      filter(P002005 > P002002) %>% dplyr::pull(GEOID)
+      filter(P002005 > P002002) %>%
+      dplyr::pull(GEOID)
     assign("rural_counties", rural_counties, envir = .rural_counties)
   }
   rural_counties <- get("rural_counties", envir = .rural_counties)
@@ -362,14 +366,14 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
 
   if (! is.na(filter_len)) {
     if (filter_align == "center") {
-      before = as.integer(ceiling((filter_len - 1) / 2))
-      after = as.integer(floor((filter_len - 1) / 2))
+      before <- as.integer(ceiling((filter_len - 1) / 2))
+      after <- as.integer(floor((filter_len - 1) / 2))
     } else if (filter_align == "right") {
-      before = filter_len - 1
-      after = 0
+      before <- filter_len - 1
+      after <- 0
     } else if (filter_align == "left") {
-      before = 0
-      after = filter_len - 1
+      before <- 0
+      after <- filter_len - 1
     }
   }
 
@@ -385,29 +389,35 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
         mutate(filter = ordered(filter, levels = c(nvar, filtered_var),
                                 labels = c(!!raw_label, !!sf_label)))
       mapping <- aes(x = date, y = count, color = filter, size = filter)
-      col_scale <- scale_color_manual(values = set_names(c(alpha("darkblue", 0.3),
-                                                           "darkred"),
-                                                         c(raw_label, sf_label)),
+      col_scale <- scale_color_manual(values =
+                                        set_names(c(alpha("darkblue", 0.3),
+                                                    "darkred"),
+                                                  c(raw_label, sf_label)),
                                       name = NULL)
       fil_scale <- scale_fill_manual(values = set_names(c(NA, NA),
                                                         c(raw_label, sf_label)),
                                      name = NULL)
-      size_scale <- scale_size_manual(values = set_names(c(0.1, 1),
-                                                         c(raw_label, sf_label)),
+      size_scale <- scale_size_manual(values =
+                                        set_names(c(0.1, 1),
+                                                  c(raw_label, sf_label)),
                                       name = NULL)
-      guide_extra <- guides(colour = guide_legend(override.aes = list(alpha = 1)))
+      guide_extra <- guides(colour =
+                              guide_legend(override.aes = list(alpha = 1)))
     } else {
       mapping <- aes(x = date, y = !!snvar)
-      col_scale <- scale_color_manual(values = set_names(c(alpha("darkblue", 0.2),
-                                                           "darkred"),
-                                                         c(raw_label, sf_label)),
+      col_scale <- scale_color_manual(values =
+                                        set_names(c(alpha("darkblue", 0.2),
+                                                    "darkred"),
+                                                  c(raw_label, sf_label)),
                                       name = NULL)
-      fil_scale <- scale_fill_manual(values = set_names(c(alpha("darkblue", 0.1),
-                                                          NA),
-                                                        c(raw_label, sf_label)),
+      fil_scale <- scale_fill_manual(values =
+                                       set_names(c(alpha("darkblue", 0.1),
+                                                   NA),
+                                                 c(raw_label, sf_label)),
                                      name = NULL)
-      size_scale <- scale_size_manual(values = set_names(c(0, 1),
-                                                         c(raw_label, sf_label)),
+      size_scale <- scale_size_manual(values =
+                                        set_names(c(0, 1),
+                                                  c(raw_label, sf_label)),
                                       name = NULL)
       guide_extra <- guides()
     }
@@ -481,7 +491,7 @@ plot_time_series <- function(df, var = c("cases", "deaths"),
     labs(x = "Date", y = lab_var, title = title_str) +
     theme_bw() +
     theme_extra
-  p <- adjust_scale(p, day = ifelse(weekly, tail(df$end_wday,1), 1))
+  p <- adjust_scale(p, day = ifelse(weekly, tail(df$end_wday, 1), 1))
   p
 }
 
