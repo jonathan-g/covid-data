@@ -4,14 +4,24 @@ library(lubridate)
 library(dtplyr)
 library(slider)
 
-initialize_git_tokens <- function() {
-  git_keyring <- "git_access"
+initialize_git_tokens <- function(git_keyring = "git_access") {
+  if (usethis::github_token() != "")
+    return()
+  if (! git_keyring %in% keyring::keyring_list()$keyring) {
+    stop("This script needs a GitHub Personal Authentication Token (PAT).\n",
+         "       Either use Sys.setenv() to set an environment variable\n",
+         "       GITHUB_PAT with your PAT as the value, or use the keyring\n",
+         "       package to set up a keyring called ", git_keyring, " that \n",
+         "       contains a key with service = \"GITHUB_PAT\" and your PAT\n",
+         "       as the value (username can be your GitHub username or you\n",
+         "       can leave it blank).\n\n",
+         "       The function usethis::browse_github_token() can help you\n",
+         "       get a new GitHub token and install it in R.")
+  }
   if (keyring::keyring_is_locked(git_keyring)) {
     keyring::keyring_unlock(git_keyring)
   }
   Sys.setenv(GITHUB_PAT = keyring::key_get("GITHUB_PAT", keyring = git_keyring))
-  Sys.setenv(JG_GITLAB_PAT = keyring::key_get("jg-gitlab", "jonathan",
-                                              keyring = git_keyring))
 }
 
 update_repos <- function() {
